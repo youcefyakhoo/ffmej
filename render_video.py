@@ -1,36 +1,54 @@
 from flask import Flask, request, jsonify
 import subprocess
 import os
+import urllib.request  # Para descargar la imagen si es necesario
 
 app = Flask(__name__)
 
 @app.route('/render', methods=['POST'])
 def render_video():
     data = request.get_json()
-    ruta_imagen = data.get('ruta_imagen')
+    url_imagen = data.get('ruta_imagen')  # Ahora esperamos una URL
     ruta_audio = data.get('ruta_audio')
-    ruta_salida = data.get('ruta_salida')
+    nombre_salida = data.get('ruta_salida')
 
-    if not ruta_imagen or not ruta_audio or not ruta_salida:
-        return jsonify({'error': 'Faltan argumentos: ruta_imagen, ruta_audio, ruta_salida'}), 400
+    if not url_imagen or not nombre_salida:
+        return jsonify({'error': 'Faltan argumentos: ruta_imagen (URL), ruta_salida (ruta_audio es opcional)'}), 400
 
-    if not os.path.exists(ruta_imagen):
+    # Descargar la imagen si es necesario (opcional, dependiendo de tu caso)
+    try:
+        nombre_archivo_imagen = "temp_imagen.png"  # Nombre temporal para guardar la imagen
+        ruta_imagen = f'/tmp/{nombre_archivo_imagen}'
+        urllib.request.urlretrieve(url_imagen, ruta_imagen)
+    except Exception as e:
+        return jsonify({'error': f'Error al descargar la imagen: {e}'}), 400
+
+    ruta_salida = f'/tmp/{nombre_salida}'
+    ruta_audio = None  # Inicializamos ruta_audio a None
+    if ruta_audio:
+        ruta_audio = f'/tmp/{ruta_audio}'
+        if not os.path.exists(ruta_audio):
+            return jsonify({'error': f'No se encontró el audio: {ruta_audio}'}), 400
+
+    if not os.path.exists(ruta_imagen):  # Verificar después de descargar
         return jsonify({'error': f'No se encontró la imagen: {ruta_imagen}'}), 400
-    if not os.path.exists(ruta_audio):
-        return jsonify({'error': f'No se encontró el audio: {ruta_audio}'}), 400
 
     comando = [
         "ffmpeg",
         "-loop", "1",
         "-i", ruta_imagen,
-        "-i", ruta_audio,
+    ]
+    if ruta_audio:
+        comando.extend(["-i", ruta_audio])
+    comando.extend([
         "-c:v", "libx264",
         "-c:a", "aac",
         "-strict", "experimental",
         "-b:a", "192k",
         "-shortest",
         ruta_salida
-    ]
+    ])
+
     try:
         subprocess.run(comando, check=True, capture_output=True, text=True)
         return jsonify({'video_path': ruta_salida}), 200
