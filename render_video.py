@@ -1,14 +1,23 @@
+from flask import Flask, request, jsonify
 import subprocess
-import sys
 import os
 
-def render_video(ruta_imagen, ruta_audio, ruta_salida):
+app = Flask(__name__)
+
+@app.route('/render', methods=['POST'])
+def render_video():
+    data = request.get_json()
+    ruta_imagen = data.get('ruta_imagen')
+    ruta_audio = data.get('ruta_audio')
+    ruta_salida = data.get('ruta_salida')
+
+    if not ruta_imagen or not ruta_audio or not ruta_salida:
+        return jsonify({'error': 'Faltan argumentos: ruta_imagen, ruta_audio, ruta_salida'}), 400
+
     if not os.path.exists(ruta_imagen):
-        print(f"Error: No se encontró la imagen: {ruta_imagen}")
-        return 1  # Código de error
+        return jsonify({'error': f'No se encontró la imagen: {ruta_imagen}'}), 400
     if not os.path.exists(ruta_audio):
-        print(f"Error: No se encontró el audio: {ruta_audio}")
-        return 1  # Código de error
+        return jsonify({'error': f'No se encontró el audio: {ruta_audio}'}), 400
 
     comando = [
         "ffmpeg",
@@ -24,22 +33,13 @@ def render_video(ruta_imagen, ruta_audio, ruta_salida):
     ]
     try:
         subprocess.run(comando, check=True, capture_output=True, text=True)
-        print(f"Video generado en: {ruta_salida}")
-        return 0  # Código de éxito
+        return jsonify({'video_path': ruta_salida}), 200
     except subprocess.CalledProcessError as e:
-        print(f"Error al ejecutar FFmpeg: {e.stderr}")
-        return e.returncode
+        return jsonify({'error': f'Error al ejecutar FFmpeg: {e.stderr}'}), 500
 
-if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Uso: python render_video.py <ruta_imagen> <ruta_audio> <ruta_salida>")
-        sys.exit(1)
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok'}), 200
 
-    ruta_imagen = sys.argv[1]
-    ruta_audio = sys.argv[2]
-    ruta_salida = sys.argv[3]
-
-    exit_code = render_video(ruta_imagen, ruta_audio, ruta_salida)
-    sys.exit(exit_code)
-
-
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
