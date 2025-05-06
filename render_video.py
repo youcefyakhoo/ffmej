@@ -41,3 +41,5 @@ if __name__ == "__main__":
 
     exit_code = render_video(ruta_imagen, ruta_audio, ruta_salida)
     sys.exit(exit_code)
+
+

@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  n8n:
+    build:
+      context: .          # Directorio donde está el Dockerfile (el actual)
+      dockerfile: Dockerfile  # Nombre del Dockerfile
+    image: n8n-custom      # Nombre que le daremos a la imagen (puedes cambiarlo)
+    restart: always         # Reinicia el contenedor automáticamente si falla
+    ports:
+      - "5678:5678"      # Expone el puerto 5678 de n8n (acceso web)
+    volumes:
+      - ~/.n8n:/home/node/.n8n  # Persiste los datos de n8n (¡Importante!)
+    environment:
+      - GENERIC_TIMEZONE=America/Lima # Ajusta tu zona horaria (opcional)
+      # - N8N_BASIC_AUTH_USER=...   # Si quieres autenticación básica (opcional)
+      # - N8N_BASIC_AUTH_PASSWORD=... # Si quieres autenticación básica (opcional)
