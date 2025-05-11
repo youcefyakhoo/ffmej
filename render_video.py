@@ -9,52 +9,39 @@ app = Flask(__name__)
 @app.route('/render', methods=['POST'])
 def render_video():
     data = request.json
-    ruta_imagen = data.get("ruta_imagen")
-    ruta_audio = data.get("ruta_audio")
+    ruta_imagen = data.get("ruta_imagen")  # Puede ser None
+    ruta_audio = data.get("ruta_audio")    # Ahora obligatorio
     ruta_salida = data.get("ruta_salida", "output.mp4")
 
-    if not ruta_imagen or not ruta_audio:
-        return jsonify({"error": "Se necesitan las URLs de imagen y audio"}), 400
+    if not ruta_audio:
+        return jsonify({"error": "Se necesita una URL de audio"}), 400
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        image_path = os.path.join(tmpdir, "image.png")
-        audio_path = os.path.join(tmpdir, "audio.mp3")
-        output_path = os.path.join(tmpdir, ruta_salida)
+    # Crear archivo temporal para video
+    output_video_path = os.path.join("/tmp", ruta_salida)
 
-        # Descargar imagen
-        try:
-            r_img = requests.get(ruta_imagen)
-            with open(image_path, "wb") as f:
-                f.write(r_img.content)
-        except Exception as e:
-            return jsonify({"error": "No se pudo descargar la imagen", "details": str(e)}), 500
+    # Si no hay imagen, usar fondo negro como dummy
+    if not ruta_imagen:
+        dummy_img_path = os.path.join("/tmp", "black.png")
+        subprocess.run([
+            "convert", "-size", "1280x720", "xc:black", dummy_img_path
+        ])
+        ruta_imagen = dummy_img_path
 
-        # Descargar audio
-        try:
-            r_audio = requests.get(ruta_audio)
-            with open(audio_path, "wb") as f:
-                f.write(r_audio.content)
-        except Exception as e:
-            return jsonify({"error": "No se pudo descargar el audio", "details": str(e)}), 500
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-loop', '1', '-framerate', '25', '-i', ruta_imagen,
+            '-i', ruta_audio, '-shortest',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-b:a', '192k',
+            output_video_path
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        return jsonify({"error": "Error al ejecutar FFmpeg", "details": str(e)}), 500
 
-        try:
-            # Generar video a partir de imagen + audio
-            subprocess.run([
-                'ffmpeg', '-y',
-                '-loop', '1', '-i', image_path,
-                '-i', audio_path,
-                '-c:v', 'libx264', '-tune', 'stillimage',
-                '-c:a', 'aac', '-b:a', '192k',
-                '-pix_fmt', 'yuv420p', '-shortest',
-                output_path
-            ], check=True)
-        except subprocess.CalledProcessError as e:
-            return jsonify({"error": "Error al ejecutar FFmpeg", "details": str(e)}), 500
+    if not os.path.exists(output_video_path):
+        return jsonify({"error": "No se pudo generar el video"}), 500
 
-        if not os.path.exists(output_path):
-            return jsonify({"error": "No se generó el video"}), 500
-
-        return send_file(output_path, as_attachment=True, download_name=ruta_salida, mimetype='video/mp4')
+    return send_file(output_video_path, as_attachment=True, download_name=ruta_salida, mimetype='video/mp4')
 
 @app.route('/health', methods=['GET'])
 def health_check():
