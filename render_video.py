@@ -81,7 +81,7 @@ def transcribir():
 def health():
     return jsonify({"status": "ok"})
 
-  app.run(debug=True)
+
 
 # ===== MAIN =====
 if __name__ == "__main__":
