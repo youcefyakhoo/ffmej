@@ -1,64 +1,46 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, jsonify
+import whisper
+import yt_dlp
 import os
-import subprocess
-import tempfile
-import requests
+import uuid
 
 app = Flask(__name__)
+model = whisper.load_model("base")  # Usa "medium" o "large" si tienes más memoria
 
-@app.route('/render', methods=['POST'])
-def render_video():
-    data = request.json
-    ruta_imagen = data.get("ruta_imagen")
-    ruta_audio = data.get("ruta_audio")
-    ruta_salida = data.get("ruta_salida", "output.mp4")
+def descargar_audio(video_url, output_path):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_path,
+        'quiet': True,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+        }],
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([video_url])
 
-    if not ruta_imagen or not ruta_audio:
-        return jsonify({"error": "Se necesitan las URLs de imagen y audio"}), 400
+@app.route("/transcribir", methods=["POST"])
+def transcribir():
+    data = request.get_json()
+    video_url = data.get("url")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        image_path = os.path.join(tmpdir, "image.png")
-        audio_path = os.path.join(tmpdir, "audio.mp3")
-        output_path = os.path.join(tmpdir, ruta_salida)
+    if not video_url:
+        return jsonify({"error": "Falta el campo 'url'"}), 400
 
-        # Descargar imagen
-        try:
-            r_img = requests.get(ruta_imagen)
-            with open(image_path, "wb") as f:
-                f.write(r_img.content)
-        except Exception as e:
-            return jsonify({"error": "No se pudo descargar la imagen", "details": str(e)}), 500
+    audio_file = f"/tmp/{uuid.uuid4()}.mp3"
 
-        # Descargar audio
-        try:
-            r_audio = requests.get(ruta_audio)
-            with open(audio_path, "wb") as f:
-                f.write(r_audio.content)
-        except Exception as e:
-            return jsonify({"error": "No se pudo descargar el audio", "details": str(e)}), 500
+    try:
+        descargar_audio(video_url, audio_file)
+        result = model.transcribe(audio_file)
+        os.remove(audio_file)
+        return jsonify({"text": result["text"]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+# ===== HEALTH CHECK =====
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
 
-        try:
-            # Generar video a partir de imagen + audio
-            subprocess.run([
-                'ffmpeg', '-y',
-                '-loop', '1', '-i', image_path,
-                '-i', audio_path,
-                '-c:v', 'libx264', '-tune', 'stillimage',
-                '-c:a', 'aac', '-b:a', '192k',
-                '-pix_fmt', 'yuv420p', '-shortest',
-                output_path
-            ], check=True)
-        except subprocess.CalledProcessError as e:
-            return jsonify({"error": "Error al ejecutar FFmpeg", "details": str(e)}), 500
-
-        if not os.path.exists(output_path):
-            return jsonify({"error": "No se generó el video"}), 500
-
-        return send_file(output_path, as_attachment=True, download_name=ruta_salida, mimetype='video/mp4')
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({'status': 'ok'}), 200
-
-if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
